@@ -1032,24 +1032,25 @@ ServiceBuilder<
 		}
 
 		// Prometheus metrics
-		let metrics = if let Some((registry, port)) = prometheus_registry_and_port {
-			let metrics = ServiceMetrics::register(&registry)?;
+		let metrics = match prometheus_registry_and_port.clone() {
+			Some((registry, port)) => {
+				let metrics = ServiceMetrics::register(&registry)?;
 
-			metrics.node_roles.set(u64::from(config.roles.bits()));
+				metrics.node_roles.set(u64::from(config.roles.bits()));
 
-			let future = select(
-				prometheus_exporter::init_prometheus(port, registry).boxed(),
-				exit.clone()
-			).map(drop);
+				let future = select(
+					prometheus_exporter::init_prometheus(port, registry).boxed(),
+					exit.clone()
+				).map(drop);
 
-			let _ = to_spawn_tx.unbounded_send((
-				Box::pin(future),
-				From::from("prometheus-endpoint")
-			));
+				let _ = to_spawn_tx.unbounded_send((
+					Box::pin(future),
+					From::from("prometheus-endpoint")
+				));
 
-			Some(metrics)
-		} else {
-			None
+				Some(metrics)
+			}
+			None => None,
 		};
 		// Periodically notify the telemetry.
 		let transaction_pool_ = transaction_pool.clone();
@@ -1271,7 +1272,11 @@ ServiceBuilder<
 		// Instrumentation
 		if let Some(tracing_targets) = config.tracing_targets.as_ref() {
 			let subscriber = sc_tracing::ProfilingSubscriber::new(
-				config.tracing_receiver, tracing_targets
+				config.tracing_receiver, tracing_targets,
+				match prometheus_registry_and_port {
+					Some((reg, _)) => Some(sc_tracing::Metrics::register(&reg)?),
+					None => None
+				}
 			);
 			match tracing::subscriber::set_global_default(subscriber) {
 				Ok(_) => (),

@@ -62,6 +62,7 @@ arg_enum! {
 	pub enum TracingReceiver {
 		Log,
 		Telemetry,
+		Prometheus
 	}
 }
 
@@ -70,6 +71,7 @@ impl Into<sc_tracing::TracingReceiver> for TracingReceiver {
 		match self {
 			TracingReceiver::Log => sc_tracing::TracingReceiver::Log,
 			TracingReceiver::Telemetry => sc_tracing::TracingReceiver::Telemetry,
+			TracingReceiver::Prometheus => sc_tracing::TracingReceiver::Prometheus,
 		}
 	}
 }

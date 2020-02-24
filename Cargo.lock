@@ -6550,6 +6550,7 @@ dependencies = [
  "erased-serde",
  "log 0.4.8",
  "parking_lot 0.10.0",
+ "prometheus-exporter",
  "sc-telemetry",
  "serde",
  "serde_json",

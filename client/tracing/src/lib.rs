@@ -53,7 +53,8 @@ use tracing_core::{
 	subscriber::Subscriber
 };
 
-use sc_telemetry::{telemetry, SUBSTRATE_INFO};
+use sc_telemetry::{telemetry, SUBSTRATE_INFO}; 
+use prometheus_exporter::{register, U64, Registry, PrometheusError, Opts, GaugeVec};
 
 /// Used to configure how to receive the metrics
 #[derive(Debug, Clone)]
@@ -62,6 +63,8 @@ pub enum TracingReceiver {
 	Log,
 	/// Output to telemetry
 	Telemetry,
+	/// Output to prometheus
+	Prometheus
 }
 
 impl Default for TracingReceiver {
@@ -149,19 +152,21 @@ pub struct ProfilingSubscriber {
 	targets: Vec<(String, Level)>,
 	receiver: TracingReceiver,
 	span_data: Mutex<HashMap<u64, SpanDatum>>,
+	prometheus_metrics: Option<Metrics>
 }
 
 impl ProfilingSubscriber {
 	/// Takes a `Receiver` and a comma separated list of targets,
 	/// either with a level: "pallet=trace"
 	/// or without: "pallet".
-	pub fn new(receiver: TracingReceiver, targets: &str) -> Self {
+	pub fn new(receiver: TracingReceiver, targets: &str, prometheus_metrics: Option<Metrics>) -> Self {
 		let targets: Vec<_> = targets.split(',').map(|s| parse_target(s)).collect();
 		ProfilingSubscriber {
 			next_id: AtomicU64::new(1),
 			targets,
 			receiver,
 			span_data: Mutex::new(HashMap::new()),
+			prometheus_metrics,
 		}
 	}
 }
@@ -252,6 +257,9 @@ impl ProfilingSubscriber {
 		match self.receiver {
 			TracingReceiver::Log => print_log(span_datum),
 			TracingReceiver::Telemetry => send_telemetry(span_datum),
+			TracingReceiver::Prometheus => send_prometheus(
+				span_datum, self.prometheus_metrics.as_ref().expect("prometheus_metrics needs to be passed to trace to prometheus")
+			)
 		}
 	}
 }
@@ -287,3 +295,32 @@ fn send_telemetry(span_datum: SpanDatum) {
 	);
 }
 
+#[derive(Clone)]
+pub struct Metrics {
+	profiling: GaugeVec<U64>
+}
+
+impl fmt::Debug for Metrics {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "Metrics")
+	}
+}
+
+impl Metrics {
+	pub fn register(registry: &Registry) -> Result<Self, PrometheusError> {
+		Ok(Self {
+			profiling: register(GaugeVec::new(
+				Opts::new("profiling", "Profiling from tracing"),
+				&["name", "target", "line", "values"]
+			)?, registry)?,
+		})
+	}
+}
+
+fn send_prometheus(span_datum: SpanDatum, metrics: &Metrics) {
+	metrics.profiling
+		.with_label_values(&[
+			span_datum.name, span_datum.target, &span_datum.line.to_string(), &span_datum.values.to_string()
+		])
+		.set(span_datum.overall_time.as_nanos() as u64);
+}
